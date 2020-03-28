@@ -31,19 +31,6 @@ function display
     echo -en "\033]0;AstroPi3-SetupAstroRaspbianPi-$*\a"
 }
 
-function checkForConnection
-{
-		testCommand=$(curl -Is $2 | head -n 1)
-		if [[ "${testCommand}" == *"OK"* || "${testCommand}" == *"Moved"* ]]
-  		then 
-  			echo "$1 was found. The script can proceed."
-  		else
-  			echo "$1, ($2), a required connection, was not found, aborting script."
-  			echo "If you would like the script to run anyway, please comment out the line that tests this connection in this script."
-  			exit
-		fi
-}
-
 display "Welcome to the AstroPi3 Raspberry Pi 3 or 4 Raspbian KStars/INDI Configuration Script."
 
 display "This will update, install and configure your Raspberry Pi 3 or 4 to work with INDI and KStars to be a hub for Astrophotography. Be sure to read the script first to see what it does and to customize it."
@@ -54,17 +41,6 @@ if [ "$proceed" != "y" ]
 then
 	exit
 fi
-
-display "Testing connections to required web addresses for running the script.  If the pi cannot connect to the internet, you should correct this before running the script.  If a required resource is not available, you should find out if the resource has moved, or remove the requirement for this resource."
-checkForConnection ZRam-script "https://raw.githubusercontent.com/novaspirit/rpi_zram/master/zram.sh"
-checkForConnection INDI-Git-Repo "https://github.com/indilib/indi.git"
-checkForConnection INDI-3rdparty-Repo "https://github.com/indilib/indi-3rdparty.git"
-checkForConnection GSC-Source "http://cdsarc.u-strasbg.fr/viz-bin/nph-Cat/tar.gz?bincats/GSC_1.2"
-checkForConnection KStars-Repo "https://github.com/KDE/kstars"
-checkForConnection PHD2-Repo "https://github.com/OpenPHDGuiding/phd2.git"
-checkForConnection WX-FormBuilder-Repo "https://github.com/wxFormBuilder/wxFormBuilder.git"
-checkForConnection PHD2-LogViewer-Repo "https://github.com/agalasso/phdlogview.git"
-checkForConnection INDIWebManagerApp-Repo "https://github.com/rlancaste/INDIWebManagerApp.git"
 
 export USERHOME=$(sudo -u $SUDO_USER -H bash -c 'echo $HOME')
 
@@ -649,289 +625,52 @@ sudo usermod -a -G dialout $SUDO_USER
 #########################################################
 #############  ASTRONOMY SOFTWARE
 
+# Installs INDI, Kstars, and Ekos bleeding edge and debugging
+display "Installing INDI and KStars"
+sudo apt-add-repository ppa:mutlaqja/ppa -y
+sudo apt update
+sudo apt -y install indi-full
+sudo apt -y install indi-full kstars-bleeding
+sudo apt -y install kstars-bleeding-dbg indi-dbg
 
 # Creates a config file for kde themes and icons which is missing on the Raspberry pi.
 # Note:  This is required for KStars to have the breeze icons.
-sudo apt -y install breeze-icon-theme
 display "Creating KDE config file so KStars can have breeze icons."
 ##################
-sudo cat > $USERHOME/.config/kdeglobals <<- EOF
+sudo --preserve-env bash -c 'cat > $USERHOME/.config/kdeglobals' <<- EOF
 [Icons]
 Theme=breeze
 EOF
 ##################
-sudo chown $SUDO_USER:$SUDO_USER $USERHOME/.config/kdeglobals
 
-# Installs Pre Requirements for INDI
-sudo apt -y install libnova-dev libcfitsio-dev libusb-1.0-0-dev libusb-dev zlib1g-dev libgsl-dev build-essential cmake git libjpeg-dev libcurl4-gnutls-dev libtiff-dev
-sudo apt -y install libftdi-dev libgps-dev libraw-dev libdc1394-22-dev libgphoto2-dev libboost-dev libboost-regex-dev librtlsdr-dev liblimesuite-dev libftdi1-dev
-sudo apt -y install ffmpeg libavcodec-dev libavdevice-dev libfftw3-dev
 
-#sudo apt install cdbs fxload libkrb5-dev dkms Are these needed too???
+# Installs the GPS-Daemon (GPSD) and GPSD Clients 
+# This is necesarry if you have a local GPS dongle attached to your SBC, 
+# and want to use it to set the coordinates and systemm time.
+# (If you don't need this, you can comment this line out with a #)
+sudo apt -y install gpsd gpsd-clients
 
-# This should prevent a well documented error
-# If a camera is mounted in the file system, it will not connect in INDI
-display "Disabling automounting of Volumes so that cameras do not mount themselves."
-echo "Deleting key files if they exist."
-sudo rm /usr/share/dbus-1/services/org.gtk.vfs.GPhoto2VolumeMonitor.service
-sudo rm /usr/share/dbus-1/services/org.gtk.Private.GPhoto2VolumeMonitor.service
-sudo rm /usr/share/gvfs/mounts/gphoto2.mount
-sudo rm /usr/share/gvfs/remote-volume-monitors/gphoto2.monitor
-sudo rm /usr/lib/gvfs/gvfs-gphoto2-volume-monitor
-
-sudo -H -u $SUDO_USER mkdir -p $USERHOME/AstroRoot
-
-read -p "Do you want to pull for indi & indi-3rdparty (1) latest master, (2) 1.8.4, (3) 1.8.3, or (4) latest release? input (1/2/3/4)? " gitTagINDI
-if [ "$gitTagINDI" == "1" ]
-then
-	# Note: The master branch is broken in indi-3rdparty 
-	# This will install check out latest branch instead
-	Releases_Tag="master"
-elif [ "$gitTagINDI" == "2" ]
-then
-	# This will install x2go for Manjaro
-	Releases_Tag="v1.8.4"
-elif [ "$gitTagINDI" == "3" ]
-then
-	# This will install x2go for Manjaro
-	Releases_Tag="v1.8.3"
-elif [ "$gitTagINDI" == "4" ]
-then
-	# This will install x2go for Manjaro
-	Releases_Tag="latest"
-else
-	echo "Indi & Indi-3rdparty latest releases will be installed!"
-	Releases_Tag="latest"
-fi
-#This removes the old build folders from the outdated version of this script before the repo was split
-if [ -d $USERHOME/AstroRoot/indi-build/libindi ]
-then
-	display "Removing old build folders from before the Repo was split."
-	sudo rm -r $USERHOME/AstroRoot/indi-build/libindi
-fi
-if [ -d $USERHOME/AstroRoot/indi-build/3rdpartyLibraries ]
-then
-	sudo rm -r $USERHOME/AstroRoot/indi-build/3rdpartyLibraries
-fi
-if [ -d $USERHOME/AstroRoot/indi-build/3rdpartyDrivers ]
-then
-	sudo rm -r $USERHOME/AstroRoot/indi-build/3rdpartyDrivers
-fi
-
-# This builds and installs INDI
-display "Building and Installing INDI"
-
-if [ ! -d $USERHOME/AstroRoot/indi ]
-then
-	cd $USERHOME/AstroRoot/
-	sudo -H -u $SUDO_USER git clone --depth 1 https://github.com/indilib/indi.git 
-	sudo -H -u $SUDO_USER mkdir -p $USERHOME/AstroRoot/indi-build
-	cd $USERHOME/AstroRoot/indi
-else
-	cd $USERHOME/AstroRoot/indi
-	sudo -H -u $SUDO_USER git pull
-fi
-
-# list all repo tags
-tags=$(eval "git tag")
-IFS=$'\n' lines=($tags)
-
-if [ "$Releases_Tag" == "master" ]
-then
-	# This will pull currnet branch
-	echo "pull latest master"
-	git pull
-
-elif [ "$Releases_Tag" == "latest" ]
-then
-	# This will install latest release
-	echo "Indi & Indi-3rdparty latest release ${lines[-1]} will be installed!"
-	git checkout ${lines[-1]}
-else
-	# This will install selected release
-	echo "Indi & Indi-3rdparty release ${Releases_Tag} will be installed!"
-	git checkout ${Releases_Tag}
-fi
-display "Building and Installing Core LibINDI"
-sudo -H -u $SUDO_USER mkdir -p $USERHOME/AstroRoot/indi-build/indi-core
-cd $USERHOME/AstroRoot/indi-build/indi-core
-sudo -H -u $SUDO_USER cmake -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=RelWithDebInfo $USERHOME/AstroRoot/indi
-sudo -H -u $SUDO_USER make -j $(expr $(nproc) + 2)
-sudo make install
-
-# This builds and installs INDI 3rd Party
-display "Building and Installing INDI 3rd Party"
-
-if [ ! -d $USERHOME/AstroRoot/indi-3rdparty ]
-then
-	cd $USERHOME/AstroRoot/
-	sudo -H -u $SUDO_USER git clone --depth 1 https://github.com/indilib/indi-3rdparty.git
-	sudo -H -u $SUDO_USER mkdir -p $USERHOME/AstroRoot/indi-build
-	cd $USERHOME/AstroRoot/indi-3rdparty
-else
-	cd $USERHOME/AstroRoot/indi-3rdparty
-	sudo -H -u $SUDO_USER git pull
-fi
-# list all repo tags
-tags=$(eval "git tag")
-IFS=$'\n' lines=($tags)
-
-if [ "$Releases_Tag" == "master" ]
-then
-	# This will pull currnet branch
-	echo "pull latest master"
-	git pull
-
-elif [ "$Releases_Tag" == "latest" ]
-then
-	# This will install latest release
-	echo "Indi & Indi-3rdparty latest release ${lines[-1]} will be installed!"
-	git checkout ${lines[-1]}
-else
-	# This will install selected release
-	echo "Indi & Indi-3rdparty release ${Releases_Tag} will be installed!"
-	git checkout ${Releases_Tag}
-fi
-
-display "Building and Installing the INDI 3rd Party Libraries"
-sudo -H -u $SUDO_USER mkdir -p $USERHOME/AstroRoot/indi-build/3rdparty-Libraries
-cd $USERHOME/AstroRoot/indi-build/3rdparty-Libraries
-sudo -H -u $SUDO_USER cmake -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=RelWithDebInfo -DBUILD_LIBS=1 $USERHOME/AstroRoot/indi-3rdparty
-sudo -H -u $SUDO_USER make -j $(expr $(nproc) + 2)
-sudo make install
-
-display "Building and Installing the INDI 3rd Party Drivers"
-sudo -H -u $SUDO_USER mkdir -p $USERHOME/AstroRoot/indi-build/3rdparty-Drivers
-cd $USERHOME/AstroRoot/indi-build/3rdparty-Drivers
-sudo -H -u $SUDO_USER cmake -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=RelWithDebInfo -DWITH_FXLOAD=1 $USERHOME/AstroRoot/indi-3rdparty
-sudo -H -u $SUDO_USER make -j $(expr $(nproc) + 2)
-sudo make install
+# Installs the General Star Catalog if you plan on using the simulators to test (If not, you can comment this line out with a #)
+display "Installing GSC"
+sudo apt -y install gsc
 
 # Installs the Astrometry.net package for supporting offline plate solves.  If you just want the online solver, comment this out with a #.
 display "Installing Astrometry.net"
 sudo apt -y install astrometry.net
 
-# Installs the optional xplanet package for simulating the solar system.  If you don't want it, comment this out with a #.
-display "Installing XPlanet"
-sudo apt -y install xplanet
-
-# Installs Pre Requirements for KStars
-sudo apt -y install build-essential cmake git libeigen3-dev libcfitsio-dev zlib1g-dev libindi-dev extra-cmake-modules libkf5plotting-dev libqt5svg5-dev libkf5iconthemes-dev wcslib-dev libqt5sql5-sqlite
-sudo apt -y install libkf5xmlgui-dev kio-dev kinit-dev libkf5newstuff-dev kdoctools-dev libkf5notifications-dev libqt5websockets5-dev qtdeclarative5-dev libkf5crash-dev gettext qml-module-qtquick-controls qml-module-qtquick-layouts
-sudo apt -y install libkf5notifyconfig-dev libqt5datavisualization5-dev qt5keychain-dev
-
-#This builds and installs KStars
-display "Building and Installing KStars"
-
-if [ ! -d $USERHOME/AstroRoot/kstars ]
-then
-	cd $USERHOME/AstroRoot/
-	sudo -H -u $SUDO_USER git clone --depth 1 https://github.com/KDE/kstars
-	sudo -H -u $SUDO_USER mkdir -p $USERHOME/AstroRoot/kstars-build
-else
-	cd $USERHOME/AstroRoot/kstars
-	sudo -H -u $SUDO_USER git pull
-fi
-
-cd $USERHOME/AstroRoot/kstars-build
-sudo -H -u $SUDO_USER cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_INSTALL_PREFIX=/usr $USERHOME/AstroRoot/kstars/
-sudo -H -u $SUDO_USER make -j $(expr $(nproc) + 2)
-sudo make install
-
-# Installs the General Star Catalog if you plan on using the simulators to test (If not, you can comment this line out with a #)
-display "Building and Installing GSC"
-if [ ! -d /usr/share/GSC ]
-then
-	sudo -H -u $SUDO_USER mkdir -p $USERHOME/AstroRoot/gsc
-	cd $USERHOME/AstroRoot/gsc
-	if [ ! -f $USERHOME/AstroRoot/gsc/bincats_GSC_1.2.tar.gz ]
-	then
-		sudo -H -u $SUDO_USER wget -O bincats_GSC_1.2.tar.gz http://cdsarc.u-strasbg.fr/viz-bin/nph-Cat/tar.gz?bincats/GSC_1.2
-	fi
-	sudo -H -u $SUDO_USER tar -xvzf bincats_GSC_1.2.tar.gz
-	cd $USERHOME/AstroRoot/gsc/src
-	sudo -H -u $SUDO_USER make -j $(expr $(nproc) + 2)
-	sudo -H -u $SUDO_USER mv gsc.exe gsc
-	sudo cp gsc /usr/bin/
-	cp -r $USERHOME/AstroRoot/gsc /usr/share/
-	sudo mv /usr/share/gsc /usr/share/GSC
-	sudo rm -r /usr/share/GSC/bin-dos
-	sudo rm -r /usr/share/GSC/src
-	sudo rm /usr/share/GSC/bincats_GSC_1.2.tar.gz
-	sudo rm /usr/share/GSC/bin/gsc.exe
-	sudo rm /usr/share/GSC/bin/decode.exe
-	
-	if [ -z "$(grep 'export GSCDAT' /etc/profile)" ]
-	then
-		cp /etc/profile /etc/profile.copy
-		echo "export GSCDAT=/usr/share/GSC" >> /etc/profile
-	fi
-else
-	echo "GSC is already installed"
-fi
-
 # Installs PHD2 if you want it.  If not, comment each line out with a #.
-sudo apt -y install libwxgtk3.0-dev
-display "Building and Installing PHD2"
+display "Installing PHD2"
+sudo apt-add-repository ppa:pch/phd2 -y
+sudo apt update
+sudo apt -y install phd2
 
-if [ ! -d $USERHOME/AstroRoot/phd2 ]
-then
-	cd $USERHOME/AstroRoot/
-	sudo -H -u $SUDO_USER git clone --depth 1 https://github.com/OpenPHDGuiding/phd2.git
-	sudo -H -u $SUDO_USER mkdir -p $USERHOME/AstroRoot/phd2-build
-else
-	cd $USERHOME/AstroRoot/phd2
-	sudo -H -u $SUDO_USER git pull
-fi
-
-cd $USERHOME/AstroRoot/phd2-build
-sudo -H -u $SUDO_USER cmake $USERHOME/AstroRoot/phd2
-sudo -H -u $SUDO_USER make -j $(expr $(nproc) + 2)
-sudo make install
-
-display "Installing Dependencies for wxFormBuilder and PHD Log Viewer"
-sudo apt -y install libwxgtk3.0-dev libwxgtk-media3.0-dev meson
-
-# This code will build and install wxFormBuilder to /usr/bin.  It is required for PHD Log Viewer.
-# If you don't want PHD Log Viewer, comment or remove all of this.
-if [ ! -d $USERHOME/AstroRoot/wxFormBuilder ]
-then
-	display "Building and Installing wxFormBuilder"
-	cd $USERHOME/AstroRoot
-	sudo -H -u $SUDO_USER git clone --depth 1 https://github.com/wxFormBuilder/wxFormBuilder.git
-	cd $USERHOME/AstroRoot/wxFormBuilder
-	
-	meson _build --prefix /usr
-	ninja -C _build install
-	cd /usr/lib
-	# Note that this next line should not really be required, but wxformbuilder cannot find its libraries without it sometimes.
-	ln -s /usr/lib/arm-linux-gnueabihf/wxformbuilder /usr/lib/wxformbuilder
-fi
-
-# This code will build and install PHD Log Viewer.  If you don't want it, comment it out.
-display "Building and Installing PHD Log Viewer"
-if [ ! -d $USERHOME/AstroRoot/phdlogview ]
-then
-	cd $USERHOME/AstroRoot/
-	sudo -H -u $SUDO_USER git clone --depth 1 https://github.com/agalasso/phdlogview.git
-	sudo -H -u $SUDO_USER mkdir -p $USERHOME/AstroRoot/phdlogview/tmp
-else
-	cd $USERHOME/AstroRoot/phdlogview
-	sudo -H -u $SUDO_USER git pull
-fi
-
-# Note that phdlogview.fbp needs to be updated to the latest version of wxFormBuilder.  This copy has been updated
-# so that it won't cause an error in the build.  As soon as the repo gets updated to be compatible, this next line can be removed.
-sudo -H -u $SUDO_USER cp -f $USERHOME/AstroPi3/phdlogview.fbp $USERHOME/AstroRoot/phdlogview/phdlogview.fbp
-
-cd $USERHOME/AstroRoot/phdlogview/tmp
-sudo -H -u $SUDO_USER cmake $USERHOME/AstroRoot/phdlogview
-sudo -H -u $SUDO_USER make -j $(expr $(nproc) + 2)
-cp $USERHOME/AstroRoot/phdlogview/tmp/phdlogview /usr/bin/
+# Installs PHD2 Log viewer if you want it.  If not, comment out with a #.
+disdplay "Installing PHD2 Log Viewer"
+sudo apt install phdlogview
 
 # This will make a shortcut to PHD Log Viewer.  If you aren't installing it, be sure to remove this too.
 ##################
-sudo cat > $USERHOME/Desktop/utilities/PHDLogViewer.desktop <<- EOF
+sudo --preserve-env bash -c 'cat > $USERHOME/Desktop/utilities/PHDLogViewer.desktop' <<- EOF
 [Desktop Entry]
 Version=1.0
 Type=Application
@@ -944,7 +683,7 @@ Icon=phd2
 EOF
 ##################
 sudo chmod +x $USERHOME/Desktop/utilities/PHDLogViewer.desktop
-sudo chown $SUDO_USER:$SUDO_USER $USERHOME/Desktop/utilities/PHDLogViewer.desktop
+sudo chown $SUDO_USER $USERHOME/Desktop/utilities/PHDLogViewer.desktop
 
 # This will copy the desktop shortcuts into place.  If you don't want  Desktop Shortcuts, of course you can comment this out.
 display "Putting shortcuts on Desktop"
@@ -958,36 +697,30 @@ sudo chmod +x $USERHOME/Desktop/phd2.desktop
 sudo chown $SUDO_USER:$SUDO_USER $USERHOME/Desktop/phd2.desktop
 
 #########################################################
-#############  INDI WEB MANAGER APP
+#############  INDI WEB MANAGER App
 
-display "Building and Installing INDI Web Manager App, indiweb, and python3"
+display "Installing INDI Web Manager App, indiweb, and python3"
 
-# This will install pip3
+# This will install pip3 and python along with their headers for the next steps
 sudo apt -y install python3-pip
+sudo apt -y install python3-dev
+
+# Setuptools may be needed in order to install indiweb on some systems
+sudo apt -y install python3-setuptools
+sudo -H -u $SUDO_USER pip3 install setuptools --upgrade
+
+# Wheel might not be installed on some systems
+sudo -H -u $SUDO_USER pip3 install wheel
 
 # This will install indiweb as the user
 sudo -H -u $SUDO_USER pip3 install indiweb
 
-# This will clone or update the repo
-if [ ! -d $USERHOME/AstroRoot/INDIWebManagerApp ]
-then
-	cd $USERHOME/AstroRoot/
-	sudo -H -u $SUDO_USER git clone --depth 1 https://github.com/rlancaste/INDIWebManagerApp.git
-	sudo -H -u $SUDO_USER mkdir -p $USERHOME/AstroRoot/INDIWebManagerApp-build
-else
-	cd $USERHOME/AstroRoot/INDIWebManagerApp
-	sudo -H -u $SUDO_USER git pull
-fi
-
-# This will make and install the program
-cd $USERHOME/AstroRoot/INDIWebManagerApp-build
-sudo -H -u $SUDO_USER cmake -DCMAKE_INSTALL_PREFIX=/usr $USERHOME/AstroRoot/INDIWebManagerApp/
-sudo -H -u $SUDO_USER make -j $(expr $(nproc) + 2)
-sudo make install
+#This will install the INDIWebManagerApp in the INDI PPA
+sudo apt -y install indiwebmanagerapp
 
 # This will make a link to start INDIWebManagerApp on the desktop
 ##################
-sudo cat > $USERHOME/Desktop/INDIWebManagerApp.desktop <<- EOF
+sudo --preserve-env bash -c 'cat > $USERHOME/Desktop/INDIWebManagerApp.desktop' <<- EOF
 [Desktop Entry]
 Encoding=UTF-8
 Name=INDI Web Manager App
