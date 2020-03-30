@@ -735,6 +735,7 @@ sudo chmod +x $USERHOME/Desktop/INDIWebManagerApp.desktop
 sudo chown $SUDO_USER:$SUDO_USER $USERHOME/Desktop/INDIWebManagerApp.desktop
 ##################
 
+
 #########################################################
 #############  Configuration for System Monitoring
 
