@@ -627,7 +627,8 @@ sudo usermod -a -G dialout $SUDO_USER
 
 # Installs INDI, Kstars, and Ekos bleeding edge and debugging
 display "Installing INDI and KStars"
-sudo apt-add-repository ppa:mutlaqja/ppa -y
+wget -O - https://www.astroberry.io/repo/key | sudo apt-key add -
+sudo su -c "echo 'deb https://www.astroberry.io/repo/ buster main' > /etc/apt/sources.list.d/astroberry.list"
 sudo apt update
 sudo apt -y install indi-full
 sudo apt -y install indi-full kstars-bleeding
